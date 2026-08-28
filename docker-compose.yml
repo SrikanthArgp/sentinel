@@ -1,0 +1,21 @@
+# Root Compose file — brings up the full stack (backend + frontend) with one `docker compose up`.
+# Backend services/infra live in backend/local/docker-compose.yml and are pulled in via `include`,
+# so backend-only dev can still run that file standalone without touching frontend tooling.
+# `include` requires Compose v2.20+; on older tooling use:
+#   docker compose -f backend/local/docker-compose.yml -f docker-compose.yml up
+
+include:
+  - backend/local/docker-compose.yml
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000  # ingestion service
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules

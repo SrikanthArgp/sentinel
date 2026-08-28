@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package featurestore;
+
+// Rolling-window transaction aggregates for a single account, used by the
+// scoring service's rules engine. See docs/ARCHITECTURE.md §4/§6.
+service FeatureStore {
+  rpc GetFeatures(GetFeaturesRequest) returns (GetFeaturesResponse);
+}
+
+message GetFeaturesRequest {
+  string account_id = 1;
+  string merchant_id = 2;
+}
+
+// Aggregate transaction stats over a single rolling window.
+message WindowAggregate {
+  uint32 transaction_count = 1;
+  double amount_sum = 2;
+  double amount_avg = 3;
+}
+
+message GetFeaturesResponse {
+  string account_id = 1;
+
+  WindowAggregate account_5m = 2;
+  WindowAggregate account_1h = 3;
+  WindowAggregate account_24h = 4;
+
+  // True if this account has never transacted with merchant_id before.
+  bool is_new_merchant_for_account = 5;
+
+  // True if a confirmed-fraud verdict has been recorded for this account
+  // (fed back from case-management's verdict.recorded events).
+  bool has_confirmed_fraud_history = 6;
+}

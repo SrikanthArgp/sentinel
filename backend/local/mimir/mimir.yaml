@@ -1,0 +1,35 @@
+# Single-process Mimir for local dev: everything in one container, all
+# state on local filesystem, replication factor 1. Not production shape —
+# see docs/deployment-aws.md for the real (managed) target.
+multitenancy_enabled: false
+
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/blocks
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+
+compactor:
+  data_dir: /data/compactor
+
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+
+ingester:
+  ring:
+    replication_factor: 1
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/ruler
+
+alertmanager_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/alertmanager
+
+alertmanager:
+  data_dir: /data/alertmanager-data

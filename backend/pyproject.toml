@@ -1,0 +1,15 @@
+# Root-level tooling config only — NOT a uv workspace.
+#
+# Each service under services/* is an independently deployable project with
+# its own pyproject.toml, its own .venv (via `uv sync` run inside that
+# service's directory), and its own Dockerfile. They share code from
+# shared/ via a local path dependency (see each service's [tool.uv.sources]),
+# not via a merged workspace venv — a workspace would force every service's
+# "app" package into one shared venv, where they'd collide by name and pytest
+# would silently import the wrong service's code across services.
+#
+# Run `pytest` per service (see backend/scripts/test_all.sh) rather than once
+# at the repo root.
+[tool.ruff]
+line-length = 100
+target-version = "py312"

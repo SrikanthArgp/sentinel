@@ -1,0 +1,48 @@
+# --- Python (backend services + Celery workers) ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# generated gRPC/protobuf stubs (regenerated from backend/proto/*.proto)
+backend/shared/proto_gen/*_pb2.py
+backend/shared/proto_gen/*_pb2.pyi
+backend/shared/proto_gen/*_pb2_grpc.py
+
+# --- Node / React (frontend) ---
+node_modules/
+frontend/dist/
+frontend/build/
+
+# --- Env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Docker / local dev stack state ---
+backend/local/**/data/
+*.pid
+
+# --- Supabase CLI ---
+backend/supabase/.branches/
+backend/supabase/.temp/
+
+# --- Terraform (docs/deployment-aws.md phase two) ---
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+.DS_Store
+*.log

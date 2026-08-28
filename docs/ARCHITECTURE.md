@@ -146,14 +146,16 @@ Walking a single transaction through every service, in order:
 | Redis (DB 0) | `feature-store` | Hot-path rolling aggregates, sub-ms reads |
 | Redis (DB 1) | Celery | Broker + result backend |
 
-Single shared Postgres instance, isolated by schema (see architecture decision log — chosen over database-per-service to avoid unnecessary operational overhead for a solo build; schema boundaries keep a future split to separate instances a config change, not a rewrite).
+Single shared Postgres instance, isolated by schema (see architecture decision log — chosen over database-per-service to avoid unnecessary operational overhead for a solo build; schema boundaries keep a future split to separate instances a config change, not a rewrite). Hosted on **Supabase** rather than run locally — schema is managed via Supabase CLI migrations (`backend/supabase/migrations/`), and services connect over a connection string/env var, not a Compose service.
+
+`feature-store` and `case-management` access Postgres via **SQLModel** (SQLAlchemy async engine + `asyncpg` driver) — its classes double as both the Pydantic API models and the ORM models, which fits FastAPI's own request/response typing without a second schema definition. Migrations remain hand-written SQL, not SQLModel/Alembic autogenerate: the migration files in `backend/supabase/migrations/` are the schema's source of truth, and SQLModel classes are kept in sync with them by hand.
 
 ## 7. Observability
 
 All five compute components (`ingestion`, `scoring`, `feature-store`, `case-management`, Celery workers) are instrumented with the OpenTelemetry SDK and export to a single **OTel Collector**, which fans out:
 
 - **Traces → Tempo**: every request is traced end-to-end, including across the gRPC hop (`scoring` → `feature-store`) and across the Kafka hop (trace context propagated in message headers, so `ingestion` → `scoring` → `feature-store` → `case-management`/Celery shows as one connected trace, not four disconnected ones).
-- **Logs → Loki**: structured logs (JSON, via `structlog`) tagged with `trace_id`/`span_id`, so a span in Tempo links directly to its corresponding log lines in Loki.
+- **Logs → Loki**: structured logs (JSON, via a shared stdlib `logging` formatter in `backend/shared/observability/`) tagged with `trace_id`/`span_id`, so a span in Tempo links directly to its corresponding log lines in Loki.
 - **Metrics → Mimir** (Prometheus-remote-write compatible): RED metrics (rate/errors/duration) per service and per gRPC method, plus domain metrics specific to this platform — Kafka consumer lag per topic/partition, scoring decision distribution (approve/flag/decline rate), feature-store cache hit rate, Celery queue depth and task duration.
 - **Grafana** sits on top of all three as the single query/dashboard surface, with exemplars linking metrics spikes directly to sample traces.
 
@@ -161,7 +163,7 @@ Why a collector instead of each service talking to Loki/Mimir/Tempo directly: on
 
 ## 8. Local development topology
 
-Docker Compose runs the full stack: the four FastAPI services, Celery workers, Kafka (KRaft mode, no separate Zookeeper), Redis, Postgres, the OTel Collector, Loki, Mimir, Tempo, and Grafana. Kubernetes manifests are an explicit phase-two deliverable, not a week-one goal — Compose maximizes time spent on the scoring/feature-store logic that is this project's actual differentiator.
+Docker Compose runs the full stack: the four FastAPI services, Celery workers, Kafka (KRaft mode, no separate Zookeeper), Redis, the OTel Collector, Loki, Mimir, Tempo, and Grafana. Postgres is **not** part of Compose — it's hosted on Supabase, and services connect to it over a connection string/env var. Kubernetes manifests are an explicit phase-two deliverable, not a week-one goal — Compose maximizes time spent on the scoring/feature-store logic that is this project's actual differentiator.
 
 ## 9. Possible extensions: ML models and agentic AI
 

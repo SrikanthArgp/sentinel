@@ -16,10 +16,10 @@ Status: planning doc, pre-implementation. Implements the design in `docs/ARCHITE
 
 **Goal**: `docker compose up` brings up every piece of infrastructure the platform needs, and four empty-but-healthy services register on it.
 
-- Repo scaffold: `services/{ingestion,scoring,feature-store,case-management}`, `proto/`, `docker/`, `docs/`.
-- `docker-compose.yml`: Kafka (KRaft mode), Redis, Postgres, OTel Collector, Loki, Mimir, Tempo, Grafana — all with health checks.
-- Postgres init: `cases` schema, `feature_history` schema (migrations via Alembic, one per service).
-- Write proto contracts: `feature_store.proto` (`GetFeatures`), `scoring.proto` (`ScoreTransaction`). Generate Python stubs, wire into a shared `proto/` package both services import.
+- Repo scaffold: `backend/services/{ingestion,scoring,feature-store,case-management}`, `backend/proto/`, `backend/local/`, `docs/`.
+- `backend/local/docker-compose.yml`: Kafka (KRaft mode), Redis, OTel Collector, Loki, Mimir, Tempo, Grafana — all with health checks. No Postgres container — Postgres is hosted on Supabase.
+- Supabase: `cases` schema, `feature_history` schema as versioned SQL migrations in `backend/supabase/migrations/` (Supabase CLI), applied against the hosted instance; services read the connection string from env.
+- Write proto contracts: `feature_store.proto` (`GetFeatures`), `scoring.proto` (`ScoreTransaction`) in `backend/proto/`. Generate Python stubs, wire into a shared `backend/shared/proto_gen/` package both services import.
 - Each of the 4 FastAPI services: skeleton app, `/healthz`, Dockerfile, OTel SDK wired to log to stdout (collector not yet consuming).
 - **Unit tests**: request/response schema validation (Pydantic models) for each service's skeleton endpoints; a test that generated proto stubs import cleanly and match the `.proto` field names (catches codegen drift early, before real handlers depend on it).
 
@@ -32,7 +32,7 @@ Status: planning doc, pre-implementation. Implements the design in `docs/ARCHITE
 **Goal**: a working gRPC service that serves real feature aggregates out of Redis, backed durably by Postgres.
 
 - Redis schema for rolling-window aggregates: per-account and per-merchant transaction count/sum over 5m/1h/24h windows (sorted sets or Redis time-series pattern — pick one, document why in code comments only where non-obvious).
-- Postgres `feature_history` table: durable snapshot on every update (source of truth, Redis rebuild path).
+- Postgres `feature_history` table: durable snapshot on every update (source of truth, Redis rebuild path). Access via SQLModel (async engine + `asyncpg`) — see `docs/ARCHITECTURE.md` §6; the schema itself is the existing hand-written migration in `backend/supabase/migrations/`, not SQLModel-generated.
 - Implement `GetFeatures` gRPC handler: reads Redis, falls back to computing from Postgres if a cache miss (and repopulates Redis) — this fallback path is what makes the cache safe to lose.
 - A small seed/backfill script to populate Redis + Postgres with synthetic historical transactions, so Day 3's scoring service has real data to call against immediately.
 - **Unit tests**: aggregate window math (boundary conditions — a transaction exactly at the 5m/1h/24h edge, empty-window/no-history accounts, decay calculation) and the cache-miss-falls-back-to-Postgres-and-repopulates-Redis path — this fallback is the piece most likely to look right in a demo and be wrong under a real cache eviction.
@@ -74,12 +74,12 @@ Status: planning doc, pre-implementation. Implements the design in `docs/ARCHITE
 
 **Goal**: flagged transactions are reviewable, and analyst verdicts flow back into the system.
 
-- `case-management`: Kafka consumer on `transaction.scored`, persists `FLAGGED`/`DECLINE` transactions into the `cases` Postgres table (approved transactions are not persisted here — high volume, no analyst action needed).
+- `case-management`: Kafka consumer on `transaction.scored`, persists `FLAGGED`/`DECLINE` transactions into the `cases` Postgres table via SQLModel (approved transactions are not persisted here — high volume, no analyst action needed).
 - REST API: `GET /cases` (list, filterable), `GET /cases/{id}` (detail with the `reasons[]` from scoring — this is where explainability becomes visible to a human), `POST /cases/{id}/verdict` (analyst confirms fraud / false positive).
 - On verdict submission: persist it, produce `verdict.recorded` to Kafka.
 - Extend `feature-store`'s Kafka consumer to also handle `verdict.recorded` — a confirmed-fraud verdict should adjust that account's future feature computation (e.g., a flag/weight consulted by the rules engine). This closes the feedback loop described in the architecture doc.
 - Remove the Day 4 throwaway debug endpoint on `ingestion` now that `case-management` is the real read path.
-- **Unit tests**: verdict-submission state transitions (a case can only move OPEN → RESOLVED once, a verdict on an already-resolved case is rejected or clearly handled — decide and test the behavior, don't leave it implicit), and `feature-store`'s verdict-driven adjustment logic (a confirmed-fraud verdict measurably changes what `GetFeatures` returns for that account, tested against a mocked/in-memory Redis or a test container).
+- **Unit tests**: verdict-submission state transitions (a case can only move OPEN → RESOLVED once, a verdict on an already-resolved case is rejected or clearly handled — decide and test the behavior, don't leave it implicit; the `cases.cases` table already has a `cases_status_verdict_consistency` check constraint enforcing this at the DB level, so also test that the app layer surfaces a clean error rather than a raw constraint-violation exception), and `feature-store`'s verdict-driven adjustment logic (a confirmed-fraud verdict measurably changes what `GetFeatures` returns for that account, tested against a mocked/in-memory Redis or a test container).
 
 **Definition of done**: a flagged transaction appears in `GET /cases`, submitting a verdict via `POST /cases/{id}/verdict` produces `verdict.recorded`, and you can observe `feature-store`'s state change as a result (e.g., re-query `GetFeatures` for that account and see the effect). `pytest` passes, including the verdict state-machine and feedback-adjustment cases.
 

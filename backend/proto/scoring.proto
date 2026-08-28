@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package scoring;
+
+// Synchronous scoring entrypoint, mirrored by the transaction.received ->
+// transaction.scored Kafka path. See docs/ARCHITECTURE.md §4/§5.
+service Scoring {
+  rpc ScoreTransaction(ScoreTransactionRequest) returns (ScoreTransactionResponse);
+}
+
+message ScoreTransactionRequest {
+  string transaction_id = 1;
+  string account_id = 2;
+  string merchant_id = 3;
+  double amount = 4;
+  string currency = 5;
+  int64 timestamp_unix_ms = 6;
+}
+
+enum Decision {
+  DECISION_UNSPECIFIED = 0;
+  APPROVE = 1;
+  FLAG = 2;
+  DECLINE = 3;
+}
+
+message ScoreTransactionResponse {
+  string transaction_id = 1;
+  uint32 score = 2;
+  Decision decision = 3;
+  // Explainability: every rule that fired contributes a human-readable
+  // reason here. Never just the score in isolation.
+  repeated string reasons = 4;
+}
